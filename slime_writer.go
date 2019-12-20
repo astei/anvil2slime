@@ -73,9 +73,9 @@ func (w *slimeWriter) writeHeader() (err error) {
 }
 
 func (w *slimeWriter) createChunkBitset(width int, depth int, minChunkXZ ChunkCoord) []byte {
-	slimeSorted := w.world.getChunkKeys()
+	chunkCoords := w.world.getChunkKeys()
 	populated := newFixedBitSet(width * depth)
-	for _, currentChunk := range slimeSorted {
+	for _, currentChunk := range chunkCoords {
 		relZ := currentChunk.Z - minChunkXZ.Z
 		relX := currentChunk.X - minChunkXZ.X
 		idx := relZ*width + relX
