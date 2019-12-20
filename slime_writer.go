@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"github.com/astei/anvil2slime/nbt"
 	"github.com/klauspost/compress/zstd"
 	"io"
@@ -80,7 +79,6 @@ func (w *slimeWriter) createChunkBitset(width int, depth int, minChunkXZ ChunkCo
 		relZ := currentChunk.Z - minChunkXZ.Z
 		relX := currentChunk.X - minChunkXZ.X
 		idx := relZ*width + relX
-		fmt.Printf("USED BITMASK ENTRY %d\n", idx)
 		populated.Set(idx)
 	}
 
@@ -97,47 +95,59 @@ func (w *slimeWriter) determineChunkBounds() (minChunkXZ ChunkCoord, width int, 
 }
 
 func (w *slimeWriter) writeChunks() (err error) {
-	var out bytes.Buffer
-
 	slimeSorted := w.world.getChunkKeys()
-	minChunkXZ, width, _ := w.determineChunkBounds()
-	barf := func(c ChunkCoord) int {
-		relZ := c.Z - minChunkXZ.Z
-		relX := c.X - minChunkXZ.X
-		return relZ*width + relX
-	}
 	sort.Slice(slimeSorted, func(one, two int) bool {
-		k1 := barf(slimeSorted[one])
-		k2 := barf(slimeSorted[two])
+		k1 := slimeChunkKey(slimeSorted[one])
+		k2 := slimeChunkKey(slimeSorted[two])
 		return k1 < k2
 	})
 
-	fmt.Println("KEYS SORTED:", slimeSorted)
-
+	var out bytes.Buffer
 	for _, coord := range slimeSorted {
 		chunk := w.world.chunks[coord]
-		if err = w.writeChunkHeader(chunk, out); err != nil {
+		if err = w.writeChunkHeader(chunk, &out); err != nil {
 			return
 		}
 		for _, section := range chunk.Sections {
-			if err = w.writeChunkSection(chunk, section, &out); err != nil {
+			if err = w.writeChunkSection(section, &out); err != nil {
 				return
 			}
 		}
 	}
 
-	return w.writeZstdCompressed(out)
+	return w.writeZstdCompressed(&out)
 }
 
-func (w *slimeWriter) writeChunkSection(chunk MinecraftChunk, section MinecraftChunkSection, out io.Writer) (err error) {
-	fmt.Println(chunk.X, ",", chunk.Z, "has section", section.Y)
+func (w *slimeWriter) writeChunkHeader(chunk MinecraftChunk, out io.Writer) (err error) {
+	for _, heightEntry := range chunk.HeightMap {
+		if err = binary.Write(out, binary.BigEndian, int32(heightEntry)); err != nil {
+			return
+		}
+	}
+	if _, err = out.Write(chunk.Biomes); err != nil {
+		return
+	}
+	w.writeChunkSectionsPopulatedBitmask(chunk, out)
+	return
+}
+
+func (w *slimeWriter) writeChunkSectionsPopulatedBitmask(chunk MinecraftChunk, out io.Writer) {
+	sectionsPopulated := newFixedBitSet(16)
+	for _, section := range chunk.Sections {
+		sectionsPopulated.Set(int(section.Y))
+	}
+	_, _ = out.Write(sectionsPopulated.Bytes())
+	return
+}
+
+func (w *slimeWriter) writeChunkSection(section MinecraftChunkSection, out io.Writer) (err error) {
 	if _, err = out.Write(section.BlockLight); err != nil {
 		return
 	}
 	if _, err = out.Write(section.Blocks); err != nil {
 		return
 	}
-	if _, err = out.Write(section.BlockData); err != nil {
+	if _, err = out.Write(section.Data); err != nil {
 		return
 	}
 	if _, err = out.Write(section.SkyLight); err != nil {
@@ -149,29 +159,7 @@ func (w *slimeWriter) writeChunkSection(chunk MinecraftChunk, section MinecraftC
 	return
 }
 
-func (w *slimeWriter) writeChunkHeader(chunk MinecraftChunk, out bytes.Buffer) (err error) {
-	sectionsPopulated := newFixedBitSet(16)
-	for _, section := range chunk.Sections {
-		sectionsPopulated.Set(int(section.Y))
-	}
-
-	for _, heightEntry := range chunk.HeightMap {
-		if err = binary.Write(&out, binary.BigEndian, uint32(heightEntry)); err != nil {
-			return
-		}
-	}
-	if _, err = out.Write(chunk.Biomes); err != nil {
-		return
-	}
-	if _, err = out.Write(sectionsPopulated.Bytes()); err != nil {
-		return
-	}
-
-	fmt.Println(chunk.X, ",", chunk.Z, "has", len(chunk.Sections), "sections.")
-	return
-}
-
-func (w *slimeWriter) writeZstdCompressed(buf bytes.Buffer) (err error) {
+func (w *slimeWriter) writeZstdCompressed(buf *bytes.Buffer) (err error) {
 	uncompressedSize := buf.Len()
 
 	var compressedOutput bytes.Buffer
@@ -182,8 +170,6 @@ func (w *slimeWriter) writeZstdCompressed(buf bytes.Buffer) (err error) {
 	if err = zstdWriter.Close(); err != nil {
 		return
 	}
-
-	fmt.Printf("compressed %d bytes, uncompressed %d\n", compressedOutput.Len(), uncompressedSize)
 
 	if err = binary.Write(w.writer, binary.BigEndian, uint32(compressedOutput.Len())); err != nil {
 		return
@@ -210,7 +196,7 @@ func (w *slimeWriter) writeTileEntities() (err error) {
 	if err = nbt.NewEncoder(&buf).Encode(compound); err != nil {
 		return
 	}
-	return w.writeZstdCompressed(buf)
+	return w.writeZstdCompressed(&buf)
 }
 
 func (w *slimeWriter) writeEntities() (err error) {
@@ -232,13 +218,13 @@ func (w *slimeWriter) writeEntities() (err error) {
 	if _, err = w.writer.Write([]byte{1}); err != nil {
 		return
 	}
-	return w.writeZstdCompressed(buf)
+	return w.writeZstdCompressed(&buf)
 }
 
 func (w *slimeWriter) writeExtra() (err error) {
 	// Write an empty zstandard stream
 	var empty bytes.Buffer
-	return w.writeZstdCompressed(empty)
+	return w.writeZstdCompressed(&empty)
 }
 
 func (world *AnvilWorld) getChunkKeys() []ChunkCoord {

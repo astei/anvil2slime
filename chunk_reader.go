@@ -22,6 +22,6 @@ type MinecraftChunkSection struct {
 	Y          uint8
 	BlockLight []byte
 	Blocks     []byte
-	BlockData  []byte
+	Data       []byte
 	SkyLight   []byte
 }
