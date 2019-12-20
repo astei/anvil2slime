@@ -126,36 +126,60 @@ func (w *slimeWriter) writeChunks() (err error) {
 
 	for _, coord := range slimeSorted {
 		chunk := w.world.chunks[coord]
-		for _, heightEntry := range chunk.HeightMap {
-			if err = binary.Write(&out, binary.BigEndian, uint32(heightEntry)); err != nil {
+		if err = w.writeChunkHeader(chunk, out); err != nil {
+			return
+		}
+		for _, section := range chunk.Sections {
+			if err = w.writeChunkSection(chunk, section, &out); err != nil {
 				return
 			}
-		}
-		if _, err = out.Write(chunk.Biomes); err != nil {
-			return
-		}
-
-		var chunkSectionsPopulated uint16
-		for _, section := range chunk.Sections {
-			chunkSectionsPopulated |= 1 << section.Y
-		}
-
-		if err = binary.Write(&out, binary.BigEndian, chunkSectionsPopulated); err != nil {
-			return
-		}
-
-		fmt.Println(coord.X, ",", coord.Z, "has", len(chunk.Sections), "sections.")
-		for _, section := range chunk.Sections {
-			fmt.Println(coord.X, ",", coord.Z, "has section", section.Y)
-			out.Write(section.BlockLight)
-			out.Write(section.Blocks)
-			out.Write(section.BlockData)
-			out.Write(section.SkyLight)
-			out.Write([]byte{0, 0}) // Unused HypixelBlocks3
 		}
 	}
 
 	return w.writeZstdCompressed(out)
+}
+
+func (w *slimeWriter) writeChunkSection(chunk MinecraftChunk, section MinecraftChunkSection, out io.Writer) (err error) {
+	fmt.Println(chunk.X, ",", chunk.Z, "has section", section.Y)
+	if _, err = out.Write(section.BlockLight); err != nil {
+		return
+	}
+	if _, err = out.Write(section.Blocks); err != nil {
+		return
+	}
+	if _, err = out.Write(section.BlockData); err != nil {
+		return
+	}
+	if _, err = out.Write(section.SkyLight); err != nil {
+		return
+	}
+	if err = binary.Write(out, binary.BigEndian, uint16(0)); err != nil {
+		return
+	}
+	return
+}
+
+func (w *slimeWriter) writeChunkHeader(chunk MinecraftChunk, out bytes.Buffer) (err error) {
+	for _, heightEntry := range chunk.HeightMap {
+		if err = binary.Write(&out, binary.BigEndian, uint32(heightEntry)); err != nil {
+			return
+		}
+	}
+	if _, err = out.Write(chunk.Biomes); err != nil {
+		return
+	}
+
+	var chunkSectionsPopulated uint16
+	for _, section := range chunk.Sections {
+		chunkSectionsPopulated |= 1 << section.Y
+	}
+
+	if err = binary.Write(&out, binary.BigEndian, chunkSectionsPopulated); err != nil {
+		return
+	}
+
+	fmt.Println(chunk.X, ",", chunk.Z, "has", len(chunk.Sections), "sections. Raw bitmask:", chunkSectionsPopulated)
+	return
 }
 
 func (w *slimeWriter) writeZstdCompressed(buf bytes.Buffer) (err error) {
