@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"os"
 
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zlib"
@@ -17,27 +18,31 @@ var ErrNoChunk = errors.New("anvil: chunk not found")
 var ErrInvalidChunkLength = errors.New("anvil: invalid chunk length")
 var ErrInvalidCompression = errors.New("anvil: invalid compression format")
 
-type anvilCompressionLevel byte
+type AnvilCompressionLevel byte
 
 const (
-	anvilCompressionLevelGzip    anvilCompressionLevel = 1
-	anvilCompressionLevelDeflate                       = 2
+	AnvilCompressionLevelGzip    AnvilCompressionLevel = 1
+	AnvilCompressionLevelDeflate                       = 2
 )
 
 // Struct AnvilReader allows you to read an Anvil region file and extract its components. The reader is not safe for
 // concurrent access; usage should be protected by a mutex if concurrent access is desired.
 type AnvilReader struct {
 	source      io.ReadSeeker
-	sectorTable []int
+	sectorTable []int32
+	Name        string
 }
 
 // Creates an AnvilReader. The ownership of the source is transferred to this reader.
 func NewAnvilReader(source io.ReadSeeker) (reader *AnvilReader, err error) {
 	reader = &AnvilReader{
 		source:      source,
-		sectorTable: make([]int, anvilMaxOffsets),
+		sectorTable: make([]int32, anvilMaxOffsets),
 	}
 
+	if file, ok := source.(*os.File); ok {
+		reader.Name = file.Name()
+	}
 	err = reader.readSectorTable()
 	return
 }
@@ -55,7 +60,7 @@ func (reader *AnvilReader) readSectorTable() (err error) {
 	}
 
 	rawSectorIn := bytes.NewReader(rawSectorData)
-	err = binary.Read(rawSectorIn, binary.BigEndian, &reader.sectorTable)
+	err = binary.Read(rawSectorIn, binary.BigEndian, reader.sectorTable)
 	return
 }
 
@@ -83,26 +88,30 @@ func (reader *AnvilReader) ReadChunk(x, z int) (chunk io.Reader, err error) {
 
 	sectorReader := bytes.NewReader(sectorData)
 	var sectorHeader struct {
-		length      int
-		compression anvilCompressionLevel
+		Length      int32
+		Compression AnvilCompressionLevel
 	}
 	if err = binary.Read(sectorReader, binary.BigEndian, &sectorHeader); err != nil {
 		return
 	}
 
-	if sectorHeader.length > len(sectorData)-5 {
+	if sectorHeader.Length > int32(len(sectorData)-5) {
 		return nil, ErrInvalidChunkLength
 	}
 
-	chunkStream := io.LimitReader(sectorReader, int64(sectorHeader.length))
-	switch sectorHeader.compression {
-	case anvilCompressionLevelGzip:
+	chunkStream := io.LimitReader(sectorReader, int64(sectorHeader.Length))
+	switch sectorHeader.Compression {
+	case AnvilCompressionLevelGzip:
 		return gzip.NewReader(chunkStream)
-	case anvilCompressionLevelDeflate:
+	case AnvilCompressionLevelDeflate:
 		return zlib.NewReader(chunkStream)
 	default:
 		return nil, ErrInvalidCompression
 	}
+}
+
+func (reader *AnvilReader) ChunkExists(x, z int) bool {
+	return reader.sectorTable[x+z*32] != 0
 }
 
 func (reader *AnvilReader) Close() error {

@@ -12,8 +12,12 @@ func main() {
 		Name:  "anvil2slime",
 		Usage: "converts Anvil worlds to Slime and back",
 		Action: func(c *cli.Context) error {
-			fmt.Println("boom! I say!")
-			return nil
+			if c.NArg() == 0 {
+				_, _ = fmt.Fprintf(os.Stderr, "need a world to work with")
+				return nil
+			} else {
+				return OpenAnvilWorld(c.Args().Get(0))
+			}
 		},
 	}
 
