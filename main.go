@@ -48,18 +48,17 @@ func processAnvilWorld(path string, saveTo string) (err error) {
 	if saveTo == "" {
 		saveTo = filepath.Join(filepath.Dir(path), filepath.Base(path)+".slime")
 	}
-	testFile, err := os.OpenFile(saveTo, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	outputFile, err := os.OpenFile(saveTo, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
 	startSlimeSave := time.Now()
-	err = world.WriteAsSlime(testFile)
-	if err != nil {
+	if err = world.WriteAsSlime(outputFile); err != nil {
 		return err
 	}
 	slimeSaveDuration := time.Now().Sub(startSlimeSave).Milliseconds()
 	fmt.Printf("Slime world saved in %dms\n", slimeSaveDuration)
 
-	err = testFile.Close()
+	err = outputFile.Close()
 	return
 }
