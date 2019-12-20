@@ -6,6 +6,7 @@ import (
 	"github.com/astei/anvil2slime/nbt"
 	"github.com/klauspost/compress/zstd"
 	"io"
+	"io/ioutil"
 	"sort"
 )
 
@@ -17,13 +18,18 @@ func slimeChunkKey(coord ChunkCoord) int64 {
 }
 
 func (world *AnvilWorld) WriteAsSlime(writer io.Writer) error {
-	slimeWriter := &slimeWriter{writer: writer, world: world}
+	zstdWriter, err := zstd.NewWriter(ioutil.Discard)
+	if err != nil {
+		return err
+	}
+	slimeWriter := &slimeWriter{writer: writer, world: world, zstdWriter: zstdWriter}
 	return slimeWriter.writeWorld()
 }
 
 type slimeWriter struct {
-	writer io.Writer
-	world  *AnvilWorld
+	writer     io.Writer
+	world      *AnvilWorld
+	zstdWriter *zstd.Encoder
 }
 
 func (w *slimeWriter) writeWorld() (err error) {
@@ -163,13 +169,14 @@ func (w *slimeWriter) writeZstdCompressed(buf *bytes.Buffer) (err error) {
 	uncompressedSize := buf.Len()
 
 	var compressedOutput bytes.Buffer
-	zstdWriter, _ := zstd.NewWriter(&compressedOutput)
-	if _, err = buf.WriteTo(zstdWriter); err != nil {
+	w.zstdWriter.Reset(&compressedOutput)
+	if _, err = buf.WriteTo(w.zstdWriter); err != nil {
 		return
 	}
-	if err = zstdWriter.Close(); err != nil {
+	if err = w.zstdWriter.Close(); err != nil {
 		return
 	}
+	w.zstdWriter.Reset(ioutil.Discard)
 
 	if err = binary.Write(w.writer, binary.BigEndian, uint32(compressedOutput.Len())); err != nil {
 		return
