@@ -7,8 +7,6 @@ import (
 	"github.com/astei/anvil2slime/nbt"
 	"github.com/klauspost/compress/zstd"
 	"io"
-	"math"
-	"math/big"
 	"sort"
 )
 
@@ -52,7 +50,6 @@ func (w *slimeWriter) writeWorld() (err error) {
 func (w *slimeWriter) writeHeader() (err error) {
 	minChunkXZ, width, depth := w.determineChunkBounds()
 	used := w.createChunkBitset(width, depth, minChunkXZ)
-	usedAsBytes := padBitSetByteArrayOutput(used, depth*width)
 
 	var header struct {
 		Magic   uint16
@@ -72,29 +69,22 @@ func (w *slimeWriter) writeHeader() (err error) {
 	if err = binary.Write(w.writer, binary.BigEndian, header); err != nil {
 		return
 	}
-	_, err = w.writer.Write(usedAsBytes)
+	_, err = w.writer.Write(used)
 	return
 }
 
-func padBitSetByteArrayOutput(set *big.Int, expectedBits int) []byte {
-	expectedBitSetSize := int(math.Ceil(float64(expectedBits) / float64(8)))
-	usedAsBytes := set.Bytes()
-	if len(usedAsBytes) < expectedBitSetSize {
-		usedAsBytes = append(usedAsBytes, make([]byte, expectedBitSetSize-len(usedAsBytes))...)
-	}
-	return usedAsBytes
-}
-
-func (w *slimeWriter) createChunkBitset(width int, depth int, minChunkXZ ChunkCoord) *big.Int {
+func (w *slimeWriter) createChunkBitset(width int, depth int, minChunkXZ ChunkCoord) []byte {
 	slimeSorted := w.world.getChunkKeys()
-	var populatedChunks big.Int
+	populated := newFixedBitSet(width * depth)
 	for _, currentChunk := range slimeSorted {
 		relZ := currentChunk.Z - minChunkXZ.Z
 		relX := currentChunk.X - minChunkXZ.X
-		populatedChunks.SetBit(&populatedChunks, relZ*width+relX, 1)
+		idx := relZ*width + relX
+		fmt.Printf("USED BITMASK ENTRY %d\n", idx)
+		populated.Set(idx)
 	}
 
-	return &populatedChunks
+	return populated.Bytes()
 }
 
 func (w *slimeWriter) determineChunkBounds() (minChunkXZ ChunkCoord, width int, depth int) {
@@ -160,6 +150,11 @@ func (w *slimeWriter) writeChunkSection(chunk MinecraftChunk, section MinecraftC
 }
 
 func (w *slimeWriter) writeChunkHeader(chunk MinecraftChunk, out bytes.Buffer) (err error) {
+	sectionsPopulated := newFixedBitSet(16)
+	for _, section := range chunk.Sections {
+		sectionsPopulated.Set(int(section.Y))
+	}
+
 	for _, heightEntry := range chunk.HeightMap {
 		if err = binary.Write(&out, binary.BigEndian, uint32(heightEntry)); err != nil {
 			return
@@ -168,17 +163,11 @@ func (w *slimeWriter) writeChunkHeader(chunk MinecraftChunk, out bytes.Buffer) (
 	if _, err = out.Write(chunk.Biomes); err != nil {
 		return
 	}
-
-	var chunkSectionsPopulated uint16
-	for _, section := range chunk.Sections {
-		chunkSectionsPopulated |= 1 << section.Y
-	}
-
-	if err = binary.Write(&out, binary.BigEndian, chunkSectionsPopulated); err != nil {
+	if _, err = out.Write(sectionsPopulated.Bytes()); err != nil {
 		return
 	}
 
-	fmt.Println(chunk.X, ",", chunk.Z, "has", len(chunk.Sections), "sections. Raw bitmask:", chunkSectionsPopulated)
+	fmt.Println(chunk.X, ",", chunk.Z, "has", len(chunk.Sections), "sections.")
 	return
 }
 

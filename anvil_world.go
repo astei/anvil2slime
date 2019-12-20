@@ -103,6 +103,14 @@ func tryToReadRegion(reader *AnvilReader) (*map[ChunkCoord]MinecraftChunk, error
 					continue
 				}
 
+				// further sanity checks...
+				if len(anvilChunkRoot.Level.HeightMap) != 256 {
+					return nil, fmt.Errorf("could not deserialize chunk %d,%d in %s: invalid height map size", x, z, reader.Name)
+				}
+				if len(anvilChunkRoot.Level.Biomes) != 256 {
+					return nil, fmt.Errorf("could not deserialize chunk %d,%d in %s: invalid biome size", x, z, reader.Name)
+				}
+
 				coords := ChunkCoord{X: anvilChunkRoot.Level.X, Z: anvilChunkRoot.Level.Z}
 				byXZ[coords] = anvilChunkRoot.Level
 			}
