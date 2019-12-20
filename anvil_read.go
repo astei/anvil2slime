@@ -47,28 +47,28 @@ func NewAnvilReader(source io.ReadSeeker) (reader *AnvilReader, err error) {
 	return
 }
 
-func (reader *AnvilReader) readSectorTable() (err error) {
-	_, err = reader.source.Seek(0, io.SeekStart)
+func (world *AnvilReader) readSectorTable() (err error) {
+	_, err = world.source.Seek(0, io.SeekStart)
 	if err != nil {
 		return err
 	}
 
 	rawSectorData := make([]byte, anvilSectorSize)
-	_, err = io.ReadFull(reader.source, rawSectorData)
+	_, err = io.ReadFull(world.source, rawSectorData)
 	if err != nil {
 		return err
 	}
 
 	rawSectorIn := bytes.NewReader(rawSectorData)
-	err = binary.Read(rawSectorIn, binary.BigEndian, reader.sectorTable)
+	err = binary.Read(rawSectorIn, binary.BigEndian, world.sectorTable)
 	return
 }
 
 // ReadChunk reads an Anvil chunk at the specified X and Z coordinates. Note that these coordinates are relative to the
 // region file and are not chunk coordinates. If successful, the provided reader may be provided to an NBT deserialization
 // routine.
-func (reader *AnvilReader) ReadChunk(x, z int) (chunk io.Reader, err error) {
-	offset := reader.sectorTable[x+z*32]
+func (world *AnvilReader) ReadChunk(x, z int) (chunk io.Reader, err error) {
+	offset := world.sectorTable[x+z*32]
 
 	sectorNumber := offset >> 8
 	occupiedSectors := offset & 0xff
@@ -77,12 +77,12 @@ func (reader *AnvilReader) ReadChunk(x, z int) (chunk io.Reader, err error) {
 		return
 	}
 
-	if _, err = reader.source.Seek(int64(sectorNumber*anvilSectorSize), io.SeekStart); err != nil {
+	if _, err = world.source.Seek(int64(sectorNumber*anvilSectorSize), io.SeekStart); err != nil {
 		return
 	}
 
 	sectorData := make([]byte, occupiedSectors*anvilSectorSize)
-	if _, err = io.ReadFull(reader.source, sectorData); err != nil {
+	if _, err = io.ReadFull(world.source, sectorData); err != nil {
 		return
 	}
 
@@ -110,12 +110,12 @@ func (reader *AnvilReader) ReadChunk(x, z int) (chunk io.Reader, err error) {
 	}
 }
 
-func (reader *AnvilReader) ChunkExists(x, z int) bool {
-	return reader.sectorTable[x+z*32] != 0
+func (world *AnvilReader) ChunkExists(x, z int) bool {
+	return world.sectorTable[x+z*32] != 0
 }
 
-func (reader *AnvilReader) Close() error {
-	if closer, ok := reader.source.(io.Closer); ok {
+func (world *AnvilReader) Close() error {
+	if closer, ok := world.source.(io.Closer); ok {
 		return closer.Close()
 	}
 	return nil
