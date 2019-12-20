@@ -198,12 +198,7 @@ func (w *slimeWriter) writeTileEntities() (err error) {
 		Tiles []interface{} `nbt:"tiles"`
 	}
 	compound.Tiles = tileEntities
-
-	var buf bytes.Buffer
-	if err = nbt.NewEncoder(&buf).Encode(compound); err != nil {
-		return
-	}
-	return w.writeZstdCompressed(&buf)
+	return w.writeCompressedNbt(compound)
 }
 
 func (w *slimeWriter) writeEntities() (err error) {
@@ -217,12 +212,15 @@ func (w *slimeWriter) writeEntities() (err error) {
 	}
 	compound.Entities = entities
 
-	var buf bytes.Buffer
-	if err = nbt.NewEncoder(&buf).Encode(compound); err != nil {
+	if _, err = w.writer.Write([]byte{1}); err != nil {
 		return
 	}
+	return w.writeCompressedNbt(compound)
+}
 
-	if _, err = w.writer.Write([]byte{1}); err != nil {
+func (w *slimeWriter) writeCompressedNbt(compound interface{}) (err error) {
+	var buf bytes.Buffer
+	if err = nbt.NewEncoder(&buf).Encode(compound); err != nil {
 		return
 	}
 	return w.writeZstdCompressed(&buf)
