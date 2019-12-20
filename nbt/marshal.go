@@ -84,7 +84,7 @@ func (e *Encoder) marshal(val reflect.Value, tagName string) error {
 		return err
 
 	case reflect.Struct:
-		if err := e.writeTag(TagCompound, ""); err != nil {
+		if err := e.writeTag(TagCompound, tagName); err != nil {
 			return err
 		}
 
@@ -94,7 +94,7 @@ func (e *Encoder) marshal(val reflect.Value, tagName string) error {
 		if val.Type().Key().Kind() != reflect.String {
 			return errors.New("unknown key type " + val.Type().String() + " for map")
 		}
-		if err := e.writeTag(TagCompound, ""); err != nil {
+		if err := e.writeTag(TagCompound, tagName); err != nil {
 			return err
 		}
 
@@ -204,6 +204,27 @@ func (e *Encoder) marshalArray(val reflect.Value, tagName string, elementKind re
 		}
 		for i := 0; i < n; i++ {
 			if err := e.writeInt64(int64(math.Float64bits(val.Index(i).Float()))); err != nil {
+				return err, true
+			}
+		}
+
+	case reflect.String:
+		if err := e.writeTag(TagList, tagName); err != nil {
+			return err, true
+		}
+		if err := e.writeNamelessTag(TagString, tagName); err != nil {
+			return err, true
+		}
+		n := val.Len()
+		if err := e.writeInt32(int32(n)); err != nil {
+			return err, true
+		}
+		for i := 0; i < n; i++ {
+			entry := val.Index(i)
+			if err := e.writeInt16(int16(entry.Len())); err != nil {
+				return err, true
+			}
+			if _, err := e.w.Write([]byte(entry.String())); err != nil {
 				return err, true
 			}
 		}
