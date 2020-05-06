@@ -227,9 +227,9 @@ func (w *slimeWriter) writeCompressedNbt(compound interface{}) (err error) {
 }
 
 func (w *slimeWriter) writeExtra() (err error) {
-	// Write an empty zstandard stream
-	var empty bytes.Buffer
-	return w.writeZstdCompressed(&empty)
+	// Write empty NBT tag compound
+	var empty map[string]interface{}
+	return w.writeCompressedNbt(empty)
 }
 
 func (world *AnvilWorld) getChunkKeys() []ChunkCoord {
